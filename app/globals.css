@@ -1,26 +1,373 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
+/* ── Design Tokens ──────────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* EDA dark palette */
+  --bg-base:     #0d1117;
+  --bg-panel:    #161b22;
+  --bg-surface:  #21262d;
+  --bg-elevated: #2d333b;
+  --bg-input:    #0d1117;
+
+  /* Borders */
+  --border:      #30363d;
+  --border-muted:#21262d;
+
+  /* Text */
+  --text-primary:   #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted:     #484f58;
+  --text-code:      #cdd9e5;
+
+  /* Accent — electric cyan */
+  --accent:         #00d4ff;
+  --accent-dim:     rgba(0, 212, 255, 0.15);
+  --accent-glow:    rgba(0, 212, 255, 0.06);
+
+  /* Amber — warnings / addresses */
+  --amber:          #f59e0b;
+  --amber-dim:      rgba(245, 158, 11, 0.15);
+
+  /* Green — outputs / ok */
+  --green:          #3fb950;
+  --green-dim:      rgba(63, 185, 80, 0.15);
+
+  /* Purple — AXI registers */
+  --purple:         #a371f7;
+  --purple-dim:     rgba(163, 113, 247, 0.15);
+
+  /* Red — errors */
+  --red:            #f85149;
+  --red-dim:        rgba(248, 81, 73, 0.15);
+
+  /* Teal — inout */
+  --teal:           #39d0c8;
+  --teal-dim:       rgba(57, 208, 200, 0.15);
+
+  /* Fonts */
+  --font-ui:   'Inter', system-ui, sans-serif;
+  --font-code: 'JetBrains Mono', 'Geist Mono', monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ── Global reset ───────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; overflow: hidden; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-panel); }
+::-webkit-scrollbar-thumb {
+  background: var(--bg-elevated);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+/* ── Typography ─────────────────────────────────────────────────────────── */
+code, pre, .font-mono { font-family: var(--font-code); }
+
+/* ── Panel system ───────────────────────────────────────────────────────── */
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.panel-title-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  white-space: nowrap;
+  font-family: var(--font-ui);
+}
+.btn:hover { background: var(--bg-elevated); border-color: var(--accent); color: var(--accent); }
+.btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(0,212,255,0.25);
+}
+.btn-primary:hover {
+  background: #33dbff;
+  border-color: #33dbff;
+  color: #000;
+  box-shadow: 0 0 20px rgba(0,212,255,0.4);
+}
+
+.btn-amber {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #000;
+  font-weight: 600;
+}
+.btn-amber:hover { background: #fbbf24; border-color: #fbbf24; color: #000; }
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:hover { background: var(--bg-elevated); border-color: var(--border); color: var(--text-primary); }
+
+/* ── Inputs & Selects ───────────────────────────────────────────────────── */
+.input, .select {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
+  font-family: var(--font-ui);
+  transition: border-color 0.15s;
+  outline: none;
+}
+.input:focus, .select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+.input::placeholder { color: var(--text-muted); }
+
+/* ── Table ──────────────────────────────────────────────────────────────── */
+.eda-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.eda-table th {
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  white-space: nowrap;
+}
+.eda-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--text-code);
+  vertical-align: middle;
+}
+.eda-table tr:hover td { background: var(--accent-glow); }
+.eda-table tr:last-child td { border-bottom: none; }
+
+/* ── Port type badges ───────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+.badge-clock    { background: var(--amber-dim);  color: var(--amber);  border: 1px solid rgba(245,158,11,0.3); }
+.badge-reset    { background: var(--red-dim);    color: var(--red);    border: 1px solid rgba(248,81,73,0.3); }
+.badge-axi      { background: var(--purple-dim); color: var(--purple); border: 1px solid rgba(163,113,247,0.3); }
+.badge-ext-in   { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(0,212,255,0.3); }
+.badge-ext-out  { background: var(--green-dim);  color: var(--green);  border: 1px solid rgba(63,185,80,0.3); }
+.badge-ext-inout{ background: var(--teal-dim);   color: var(--teal);   border: 1px solid rgba(57,208,200,0.3); }
+.badge-ignore   { background: var(--bg-elevated);color: var(--text-muted); border: 1px solid var(--border); }
+
+/* ── Tabs ───────────────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 8px;
+  overflow-x: auto;
+}
+.tab {
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font-family: var(--font-ui);
+}
+.tab:hover { color: var(--text-primary); }
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Code viewer ────────────────────────────────────────────────────────── */
+.code-viewer {
+  background: var(--bg-base);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-code);
+  overflow: auto;
+  white-space: pre;
+  padding: 16px;
+  height: 100%;
+  tab-size: 4;
+}
+
+/* ── Status bar ─────────────────────────────────────────────────────────── */
+.status-bar {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.status-bar .status-ok    { color: var(--green); }
+.status-bar .status-error { color: var(--red); }
+.status-bar .status-warn  { color: var(--amber); }
+.status-bar .status-info  { color: var(--accent); }
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-accent {
+  0%, 100% { box-shadow: 0 0 6px var(--accent); }
+  50%       { box-shadow: 0 0 14px var(--accent); }
+}
+@keyframes scan {
+  from { background-position: 0% 0%; }
+  to   { background-position: 0% 100%; }
+}
+
+.animate-fade-in { animation: fadeIn 0.2s ease forwards; }
+.pulse-accent    { animation: pulse-accent 2s ease-in-out infinite; }
+
+/* ── Utility overrides ──────────────────────────────────────────────────── */
+.text-accent   { color: var(--accent); }
+.text-amber    { color: var(--amber); }
+.text-green    { color: var(--green); }
+.text-red      { color: var(--red); }
+.text-muted    { color: var(--text-muted); }
+.text-secondary{ color: var(--text-secondary); }
+.bg-panel      { background: var(--bg-panel); }
+.bg-surface    { background: var(--bg-surface); }
+.border-default{ border-color: var(--border); }
+
+/* ── Grid scanline overlay (decorative) ─────────────────────────────────── */
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,212,255,0.015) 2px,
+    rgba(0,212,255,0.015) 4px
+  );
+  pointer-events: none;
+}
+
+/* ── Tooltip ────────────────────────────────────────────────────────────── */
+.tooltip {
+  position: relative;
+}
+.tooltip::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 100;
+}
+.tooltip:hover::after { opacity: 1; }
+
+/* ── Select option dark styling ─────────────────────────────────────────── */
+select option { background: var(--bg-elevated); color: var(--text-primary); }
+
+/* ── Resize handle ──────────────────────────────────────────────────────── */
+.resize-handle {
+  flex-shrink: 0;
+  cursor: col-resize;
+  width: 4px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+.resize-handle:hover { background: var(--accent); }
