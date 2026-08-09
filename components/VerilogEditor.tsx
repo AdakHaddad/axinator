@@ -15,24 +15,80 @@ interface VerilogEditorProps {
   isParsing: boolean;
 }
 
-const EXAMPLE_VERILOG = `module filter_coeff (
-    input wire clk,
-    input wire valid,
-    input wire [2:0] sw,
-    input wire signed [15:0] x_in,
-    input wire signed [15:0] b0_1,
-    input wire signed [15:0] b1_1,
+const EXAMPLE_VERILOG = `// filter_coeff.v  — top module
+// Wraps two biquad stages into a cascaded IIR filter.
+// Coefficients are configured via AXI registers.
+module filter_coeff (
+    input  wire        clk,
+    input  wire        rst_n,
+    input  wire        valid,
+    input  wire [2:0]  sw,
+    input  wire signed [15:0] x_in,
+    // Stage 1 coefficients (AXI-mapped)
+    input  wire signed [15:0] b0_1,
+    input  wire signed [15:0] b1_1,
+    input  wire signed [15:0] b2_1,
+    input  wire signed [15:0] a1_1,
+    input  wire signed [15:0] a2_1,
+    // Stage 2 coefficients (AXI-mapped)
+    input  wire signed [15:0] b0_2,
+    input  wire signed [15:0] b1_2,
+    input  wire signed [15:0] b2_2,
+    input  wire signed [15:0] a1_2,
+    input  wire signed [15:0] a2_2,
     output wire signed [15:0] y_out
 );
+    wire signed [15:0] mid;
+
     filter_biquad stage1 (
-        .clk(clk)
+        .clk   (clk),
+        .rst_n (rst_n),
+        .valid (valid),
+        .x_in  (x_in),
+        .b0    (b0_1), .b1(b1_1), .b2(b2_1),
+        .a1    (a1_1), .a2(a2_1),
+        .y_out (mid)
+    );
+
+    filter_biquad stage2 (
+        .clk   (clk),
+        .rst_n (rst_n),
+        .valid (valid),
+        .x_in  (mid),
+        .b0    (b0_2), .b1(b1_2), .b2(b2_2),
+        .a1    (a1_2), .a2(a2_2),
+        .y_out (y_out)
     );
 endmodule`;
 
-const EXAMPLE_BIQUAD = `module filter_biquad (
-    input wire clk
+const EXAMPLE_BIQUAD = `// filter_biquad.v  — internal dependency
+// Direct-Form II biquad section.
+// This module is an internal dependency of filter_coeff.
+// It will NOT receive its own AXI wrapper.
+module filter_biquad (
+    input  wire        clk,
+    input  wire        rst_n,
+    input  wire        valid,
+    input  wire signed [15:0] x_in,
+    input  wire signed [15:0] b0,
+    input  wire signed [15:0] b1,
+    input  wire signed [15:0] b2,
+    input  wire signed [15:0] a1,
+    input  wire signed [15:0] a2,
+    output reg  signed [15:0] y_out
 );
-    // internal logic
+    reg signed [15:0] w0, w1, w2;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            w0 <= 0; w1 <= 0; w2 <= 0; y_out <= 0;
+        end else if (valid) begin
+            w0    <= x_in - (a1 * w1 >>> 15) - (a2 * w2 >>> 15);
+            y_out <= (b0 * w0 >>> 15) + (b1 * w1 >>> 15) + (b2 * w2 >>> 15);
+            w2    <= w1;
+            w1    <= w0;
+        end
+    end
 endmodule`;
 
 export default function VerilogEditor({ 

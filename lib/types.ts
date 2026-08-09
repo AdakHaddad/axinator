@@ -33,15 +33,46 @@ export interface UploadedFile {
   content: string;
 }
 
+// ── Dependency graph ─────────────────────────────────────────────────────────
+
+/** A single node in the rendered dependency tree */
+export interface DependencyNode {
+  moduleName: string;
+  filename: string;       // source file that defines this module
+  children: DependencyNode[];
+  isMissing: boolean;     // true when module is instantiated but has no source
+}
+
 export interface DependencyGraph {
   modules: Map<string, ParsedModule>;
   topCandidates: string[];
-  missingDeps: Map<string, string[]>; // moduleName -> list of missing instantiated module names
+  /** moduleName → list of missing instantiated module names */
+  missingDeps: Map<string, string[]>;
+  /** All modules that are NOT reachable from a given top module (populated per-query) */
+  unreachableModules?: string[];
+  /** True when a circular dependency was detected */
+  hasCycle: boolean;
+  /** Pairs of module names that form a cycle, e.g. [['a','b'],['b','a']] */
+  cycleEdges: [string, string][];
 }
 
 export interface ParseError {
   line: number;
   message: string;
+}
+
+// ── Validation ───────────────────────────────────────────────────────────────
+
+export type ValidationSeverity = 'error' | 'warning' | 'info';
+
+export interface ValidationMessage {
+  severity: ValidationSeverity;
+  message: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;           // false if any errors exist
+  messages: ValidationMessage[];
 }
 
 // ── Port configuration types ─────────────────────────────────────────────────
@@ -98,6 +129,8 @@ export interface IPConfig {
   reset: ResetConfig | null;
   portConfigs: PortConfig[];
   registers: RegisterEntry[];
+  /** Names of all source files that should be included in the IP package (in order) */
+  sourceFiles: { filename: string; content: string }[];
 }
 
 // ── Generator output ─────────────────────────────────────────────────────────
@@ -105,7 +138,8 @@ export interface IPConfig {
 export interface GeneratedFiles {
   topWrapper: string;
   axiSlave: string;
-  originalHdl: string;
+  /** Map from filename → content for all original HDL source files */
+  sourceMap: Map<string, string>;
   registerMapMd: string;
   componentXml: string;
   readme: string;
