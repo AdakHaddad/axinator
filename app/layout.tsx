@@ -14,8 +14,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
+    // data-theme is set client-side in page.tsx based on localStorage / OS pref.
+    // Default to dark so there's no flash before hydration.
     <html
       lang="en"
+      data-theme="dark"
       className={`${geistSans.variable} ${geistMono.variable} h-full`}
     >
       <body className="h-full overflow-hidden flex flex-col">{children}</body>

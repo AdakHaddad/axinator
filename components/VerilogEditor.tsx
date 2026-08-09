@@ -1,8 +1,9 @@
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import type { UploadedFile } from '../lib/types';
+import { useMonaco } from '@monaco-editor/react';
 
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
 
@@ -13,6 +14,7 @@ interface VerilogEditorProps {
   onActiveFileChange: (idx: number) => void;
   onParse: () => void;
   isParsing: boolean;
+  theme: 'dark' | 'light';
 }
 
 const EXAMPLE_VERILOG = `// filter_coeff.v  — top module
@@ -97,9 +99,17 @@ export default function VerilogEditor({
   onFilesChange, 
   onActiveFileChange, 
   onParse, 
-  isParsing 
+  isParsing,
+  theme,
 }: VerilogEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const monaco = useMonaco();
+
+  // Switch Monaco theme whenever the app theme changes
+  useEffect(() => {
+    if (!monaco) return;
+    monaco.editor.setTheme(theme === 'dark' ? 'axinator-dark' : 'axinator-light');
+  }, [monaco, theme]);
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
@@ -305,9 +315,10 @@ export default function VerilogEditor({
                     ],
                   },
                 });
+
+                // Dark theme
                 monaco.editor.defineTheme('axinator-dark', {
-                  base: 'vs-dark',
-                  inherit: true,
+                  base: 'vs-dark', inherit: true,
                   rules: [
                     { token: 'keyword',    foreground: '79c0ff', fontStyle: 'bold' },
                     { token: 'comment',    foreground: '8b949e', fontStyle: 'italic' },
@@ -317,17 +328,42 @@ export default function VerilogEditor({
                     { token: 'delimiter',  foreground: '8b949e' },
                   ],
                   colors: {
-                    'editor.background':           '#0d1117',
-                    'editor.foreground':           '#cdd9e5',
+                    'editor.background':              '#0d1117',
+                    'editor.foreground':              '#cdd9e5',
                     'editor.lineHighlightBackground': '#161b2288',
-                    'editorLineNumber.foreground': '#484f58',
+                    'editorLineNumber.foreground':    '#484f58',
                     'editorLineNumber.activeForeground': '#8b949e',
-                    'editorCursor.foreground':     '#00d4ff',
-                    'editor.selectionBackground':  '#264f78',
-                    'editorGutter.background':     '#0d1117',
+                    'editorCursor.foreground':        '#00d4ff',
+                    'editor.selectionBackground':     '#264f78',
+                    'editorGutter.background':        '#0d1117',
                   },
                 });
-                monaco.editor.setTheme('axinator-dark');
+
+                // Light theme
+                monaco.editor.defineTheme('axinator-light', {
+                  base: 'vs', inherit: true,
+                  rules: [
+                    { token: 'keyword',    foreground: '0550ae', fontStyle: 'bold' },
+                    { token: 'comment',    foreground: '57606a', fontStyle: 'italic' },
+                    { token: 'number',     foreground: '0550ae' },
+                    { token: 'identifier', foreground: '24292f' },
+                    { token: 'operator',   foreground: 'cf222e' },
+                    { token: 'delimiter',  foreground: '57606a' },
+                  ],
+                  colors: {
+                    'editor.background':              '#f6f8fa',
+                    'editor.foreground':              '#24292f',
+                    'editor.lineHighlightBackground': '#eaeef280',
+                    'editorLineNumber.foreground':    '#8c959f',
+                    'editorLineNumber.activeForeground': '#57606a',
+                    'editorCursor.foreground':        '#0284c7',
+                    'editor.selectionBackground':     '#add6ff',
+                    'editorGutter.background':        '#f6f8fa',
+                  },
+                });
+
+                // Apply current theme (reactive updates handled by useEffect above)
+                monaco.editor.setTheme(theme === 'dark' ? 'axinator-dark' : 'axinator-light');
               }}
             />
           ) : (

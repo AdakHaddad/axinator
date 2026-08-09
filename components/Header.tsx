@@ -8,6 +8,8 @@ interface HeaderProps {
   canGenerate: boolean;
   canDownload: boolean;
   isGenerating: boolean;
+  theme: 'dark' | 'light';
+  onThemeToggle: () => void;
 }
 
 export default function Header({
@@ -18,7 +20,11 @@ export default function Header({
   canGenerate,
   canDownload,
   isGenerating,
+  theme,
+  onThemeToggle,
 }: HeaderProps) {
+  const isDark = theme === 'dark';
+
   return (
     <header
       style={{
@@ -40,12 +46,7 @@ export default function Header({
           <path d="M4 11h4l2-5 2 10 2-5 2 0" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           <circle cx="17" cy="11" r="1.5" fill="var(--amber)"/>
         </svg>
-        <span style={{
-          fontSize: '14px',
-          fontWeight: 700,
-          color: 'var(--text-primary)',
-          letterSpacing: '-0.01em',
-        }}>
+        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
           Axinator
         </span>
         <span style={{
@@ -59,10 +60,9 @@ export default function Header({
         </span>
       </div>
 
-      {/* Spacer */}
       <div style={{ flex: 1 }} />
 
-      {/* IP Name input */}
+      {/* IP Name */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <label style={{ fontSize: '11px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
           IP Name
@@ -72,13 +72,13 @@ export default function Header({
           className="input"
           style={{ width: '180px' }}
           value={ipName}
-          onChange={(e) => onIpNameChange(e.target.value)}
+          onChange={e => onIpNameChange(e.target.value)}
           placeholder="my_ip_axi"
           spellCheck={false}
         />
       </div>
 
-      {/* Actions */}
+      {/* Generate */}
       <button
         id="btn-generate"
         className="btn btn-primary"
@@ -92,6 +92,7 @@ export default function Header({
         {isGenerating ? 'Generating…' : 'Generate'}
       </button>
 
+      {/* Download */}
       <button
         id="btn-download"
         className="btn btn-amber"
@@ -106,14 +107,38 @@ export default function Header({
         Download ZIP
       </button>
 
+      {/* Theme toggle */}
+      <button
+        className="btn btn-ghost"
+        onClick={onThemeToggle}
+        title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+        aria-label={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
+        style={{ padding: '5px 8px', flexShrink: 0 }}
+      >
+        {isDark ? (
+          /* Sun icon */
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+          </svg>
+        ) : (
+          /* Moon icon */
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        )}
+      </button>
+
       {/* Vivado badge */}
       <div style={{
         fontSize: '10px',
         fontWeight: 600,
         padding: '3px 8px',
         borderRadius: '3px',
-        background: 'var(--purple-dim, rgba(163,113,247,0.15))',
-        color: 'var(--purple, #a371f7)',
+        background: 'var(--purple-dim)',
+        color: 'var(--purple)',
         border: '1px solid rgba(163,113,247,0.3)',
         letterSpacing: '0.06em',
         flexShrink: 0,
