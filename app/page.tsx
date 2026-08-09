@@ -35,7 +35,7 @@ export default function AppShell() {
   
   const [generated, setGenerated] = useState<GeneratedFiles | null>(null);
   
-  const [status, setStatus] = useState({ msg: 'Ready', type: 'info' as const });
+  const [status, setStatus] = useState<{msg: string; type: 'ok' | 'error' | 'warn' | 'info'}>({ msg: 'Ready', type: 'info' });
   const [isParsing, setIsParsing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
