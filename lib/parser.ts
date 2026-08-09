@@ -29,127 +29,145 @@ function parseWidth(widthStr: string | undefined): { msb: number; lsb: number; w
 
 // ── Main parser ───────────────────────────────────────────────────────────────
 
-export function parseVerilog(src: string): ParsedModule {
-  const errors: ParseError[] = [];
-
-  // ── 1. Strip comments ────────────────────────────────────────────────────
+export function parseVerilogFile(filename: string, src: string): ParsedModule[] {
   const clean = stripComments(src);
+  const moduleRegex = /\bmodule\s+([a-zA-Z_]\w*)([\s\S]*?)\bendmodule\b/g;
+  let match;
+  const modules: ParsedModule[] = [];
 
-  // ── 2. Extract module name ───────────────────────────────────────────────
-  const moduleMatch = clean.match(/\bmodule\s+(\w+)/);
-  if (!moduleMatch) {
-    errors.push({ line: 0, message: 'Could not find a module declaration.' });
-    return { moduleName: 'unknown', parameters: [], ports: [], errors, raw: src };
-  }
-  const moduleName = moduleMatch[1];
+  while ((match = moduleRegex.exec(clean)) !== null) {
+    const rawModule = match[0];
+    const moduleName = match[1];
+    const moduleBody = match[2];
+    const errors: ParseError[] = [];
 
-  // ── 3. Extract parameter block #( ... ) ──────────────────────────────────
-  const parameters: VerilogParameter[] = [];
-  const paramBlockMatch = clean.match(/\bmodule\s+\w+\s*#\s*\(([\s\S]*?)\)\s*\(/);
-  if (paramBlockMatch) {
-    const paramBlock = paramBlockMatch[1];
-    const paramLines = paramBlock.split(',');
-    for (const pl of paramLines) {
-      // parameter [type] NAME = value
-      const pm = pl.match(/\bparameter\b(?:\s+\w+)?\s+(\w+)\s*=\s*([^,\n]+)/);
-      if (pm) {
-        parameters.push({
-          name: pm[1].trim(),
-          defaultValue: pm[2].trim(),
-          raw: pl.trim(),
+    // ── Extract parameter block #( ... ) ──────────────────────────────────
+    const parameters: VerilogParameter[] = [];
+    const paramBlockMatch = moduleBody.match(/^\s*#\s*\(([\s\S]*?)\)\s*\(/);
+    if (paramBlockMatch) {
+      const paramBlock = paramBlockMatch[1];
+      const paramLines = paramBlock.split(',');
+      for (const pl of paramLines) {
+        // parameter [type] NAME = value
+        const pm = pl.match(/\bparameter\b(?:\s+\w+)?\s+(\w+)\s*=\s*([^,\n]+)/);
+        if (pm) {
+          parameters.push({
+            name: pm[1].trim(),
+            defaultValue: pm[2].trim(),
+            raw: pl.trim(),
+          });
+        }
+      }
+    }
+
+    // ── Extract port list ─────────────────────────────────────────────────
+    let portBlockStr = '';
+    // Find the first '(' that belongs to the port list
+    const hashIdx = moduleBody.indexOf('#');
+    let parenStart = -1;
+
+    if (hashIdx !== -1 && hashIdx < moduleBody.indexOf('(')) {
+      // has parameter block - find matching closing paren then the next open paren
+      let depth = 0;
+      let i = moduleBody.indexOf('(', hashIdx);
+      for (; i < moduleBody.length; i++) {
+        if (moduleBody[i] === '(') depth++;
+        else if (moduleBody[i] === ')') {
+          depth--;
+          if (depth === 0) { parenStart = moduleBody.indexOf('(', i + 1); break; }
+        }
+      }
+    } else {
+      parenStart = moduleBody.indexOf('(');
+    }
+
+    if (parenStart === -1) {
+      errors.push({ line: 0, message: 'Could not find port list.' });
+    } else {
+      // Extract balanced parens for port block
+      let depth = 0;
+      let portBlockEnd = parenStart;
+      for (let i = parenStart; i < moduleBody.length; i++) {
+        if (moduleBody[i] === '(') depth++;
+        else if (moduleBody[i] === ')') {
+          depth--;
+          if (depth === 0) { portBlockEnd = i; break; }
+        }
+      }
+      portBlockStr = moduleBody.slice(parenStart + 1, portBlockEnd);
+    }
+
+    // ── Parse individual ports ────────────────────────────────────────────
+    const ports: VerilogPort[] = [];
+    if (portBlockStr) {
+      const portDecls = splitTopLevel(portBlockStr, ',');
+      const portRegex = /^\s*(input|output|inout)\s+(?:(wire|reg)\s+)?(?:(signed)\s+)?(\[\s*\d+\s*:\s*\d+\s*\]\s*)?([a-zA-Z_]\w*)\s*$/;
+
+      for (let idx = 0; idx < portDecls.length; idx++) {
+        const decl = portDecls[idx].trim();
+        if (!decl) continue;
+
+        const m = portRegex.exec(decl);
+        if (!m) {
+          const lineNo = findLineNumber(src, decl);
+          if (decl.replace(/\s/g, '')) {
+            errors.push({
+              line: lineNo,
+              message: `Could not parse port declaration: "${decl.slice(0, 60)}"`,
+            });
+          }
+          continue;
+        }
+
+        const direction = m[1] as PortDirection;
+        const isSigned = !!m[3];
+        const widthStr = m[4];
+        const name = m[5];
+
+        const { msb, lsb, width } = parseWidth(widthStr);
+
+        ports.push({
+          name,
+          direction,
+          width,
+          msb,
+          lsb,
+          signed: isSigned,
+          raw: decl,
         });
       }
     }
-  }
 
-  // ── 4. Extract port list ─────────────────────────────────────────────────
-  // Find the port list: the first (...) after the module name (and optional params)
-  let portBlockStr = '';
-  let searchFrom = clean.indexOf(moduleName, clean.indexOf('module'));
-  // skip past parameter block if any
-  const hashIdx = clean.indexOf('#', searchFrom);
-  let parenStart = -1;
+    // ── Extract instantiations ─────────────────────────────────────────────
+    const instantiations = new Set<string>();
+    // Pattern: Identifier1 [#(params)] Identifier2 (
+    const instRegex = /\b([a-zA-Z_]\w*)\s+(?:#\s*\([\s\S]*?\)\s*)?([a-zA-Z_]\w*)\s*\(/g;
+    let instMatch;
+    const keywords = new Set([
+      'if', 'else', 'case', 'always', 'for', 'while', 'task', 'function', 
+      'begin', 'end', 'module', 'endmodule', 'assign', 'wire', 'reg', 'input', 
+      'output', 'inout', 'parameter', 'localparam', 'signed', 'unsigned'
+    ]);
 
-  if (hashIdx !== -1 && hashIdx < clean.indexOf('(', searchFrom)) {
-    // has parameter block - find matching closing paren then the next open paren
-    let depth = 0;
-    let i = clean.indexOf('(', hashIdx);
-    for (; i < clean.length; i++) {
-      if (clean[i] === '(') depth++;
-      else if (clean[i] === ')') {
-        depth--;
-        if (depth === 0) { parenStart = clean.indexOf('(', i + 1); break; }
+    while ((instMatch = instRegex.exec(moduleBody)) !== null) {
+      const typeName = instMatch[1];
+      if (!keywords.has(typeName)) {
+        instantiations.add(typeName);
       }
     }
-  } else {
-    parenStart = clean.indexOf('(', searchFrom);
-  }
 
-  if (parenStart === -1) {
-    errors.push({ line: 0, message: 'Could not find port list.' });
-    return { moduleName, parameters, ports: [], errors, raw: src };
-  }
-
-  // Extract balanced parens for port block
-  let depth = 0;
-  let portBlockEnd = parenStart;
-  for (let i = parenStart; i < clean.length; i++) {
-    if (clean[i] === '(') depth++;
-    else if (clean[i] === ')') {
-      depth--;
-      if (depth === 0) { portBlockEnd = i; break; }
-    }
-  }
-  portBlockStr = clean.slice(parenStart + 1, portBlockEnd);
-
-  // ── 5. Parse individual ports ────────────────────────────────────────────
-  const ports: VerilogPort[] = [];
-
-  // Split by comma at top level (depth 0 within the port block)
-  const portDecls = splitTopLevel(portBlockStr, ',');
-
-  // Port declaration regex:
-  // (input|output|inout) [wire|reg] [signed] [[MSB:LSB]] NAME
-  const portRegex =
-    /^\s*(input|output|inout)\s+(?:(wire|reg)\s+)?(?:(signed)\s+)?(\[\s*\d+\s*:\s*\d+\s*\]\s*)?(\w+)\s*$/;
-
-  for (let idx = 0; idx < portDecls.length; idx++) {
-    const decl = portDecls[idx].trim();
-    if (!decl) continue;
-
-    const m = portRegex.exec(decl);
-    if (!m) {
-      // Try to find line number in original source
-      const lineNo = findLineNumber(src, decl);
-      // Skip empty/comment lines silently; warn on real content
-      if (decl.replace(/\s/g, '')) {
-        errors.push({
-          line: lineNo,
-          message: `Could not parse port declaration: "${decl.slice(0, 60)}"`,
-        });
-      }
-      continue;
-    }
-
-    const direction = m[1] as PortDirection;
-    const isSigned = !!m[3];
-    const widthStr = m[4];
-    const name = m[5];
-
-    const { msb, lsb, width } = parseWidth(widthStr);
-
-    ports.push({
-      name,
-      direction,
-      width,
-      msb,
-      lsb,
-      signed: isSigned,
-      raw: decl,
+    modules.push({
+      moduleName,
+      filename,
+      parameters,
+      ports,
+      instantiations: Array.from(instantiations),
+      errors,
+      raw: rawModule,
     });
   }
 
-  return { moduleName, parameters, ports, errors, raw: src };
+  return modules;
 }
 
 /** Split a string by a separator, respecting nested brackets/parens */
@@ -180,3 +198,5 @@ function findLineNumber(src: string, snippet: string): number {
   }
   return 0;
 }
+
+

@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import type { GeneratedFiles } from './types';
+import type { GeneratedFiles, UploadedFile } from './types';
 
 /**
  * Packages all generated files into a ZIP and triggers browser download.
@@ -8,7 +8,7 @@ import type { GeneratedFiles } from './types';
 export async function downloadZip(
   ipName: string,
   files: GeneratedFiles,
-  originalFileName: string = 'original.v'
+  originalFiles: UploadedFile[]
 ): Promise<void> {
   const zip = new JSZip();
   const root = zip.folder(ipName)!;
@@ -17,7 +17,10 @@ export async function downloadZip(
   const hdl = root.folder('hdl')!;
   hdl.file(`${ipName}.v`,          files.topWrapper);
   hdl.file(`${ipName}_S00_AXI.v`,  files.axiSlave);
-  hdl.file(originalFileName,        files.originalHdl);
+  
+  for (const f of originalFiles) {
+    hdl.file(f.filename, f.content);
+  }
 
   // xgui/ (placeholder — Vivado generates this automatically on package)
   const xgui = root.folder('xgui')!;

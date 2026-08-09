@@ -20,10 +20,23 @@ export interface VerilogParameter {
 
 export interface ParsedModule {
   moduleName: string;
+  filename: string;
   parameters: VerilogParameter[];
   ports: VerilogPort[];
+  instantiations: string[]; // names of instantiated modules
   errors: ParseError[];
-  raw: string;            // full original Verilog text
+  raw: string;            // full original Verilog text of the module
+}
+
+export interface UploadedFile {
+  filename: string;
+  content: string;
+}
+
+export interface DependencyGraph {
+  modules: Map<string, ParsedModule>;
+  topCandidates: string[];
+  missingDeps: Map<string, string[]>; // moduleName -> list of missing instantiated module names
 }
 
 export interface ParseError {
