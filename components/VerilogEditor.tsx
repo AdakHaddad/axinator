@@ -104,22 +104,33 @@ export default function VerilogEditor({
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const uploadedFiles = e.target.files;
     if (!uploadedFiles || uploadedFiles.length === 0) return;
-    
-    const newFiles: UploadedFile[] = [];
+
+    const total = uploadedFiles.length;
+    // Pre-allocate slots so insertion order is preserved
+    const results: UploadedFile[] = new Array(total);
     let processed = 0;
 
-    for (let i = 0; i < uploadedFiles.length; i++) {
+    for (let i = 0; i < total; i++) {
       const file = uploadedFiles[i];
+      const slot = i;
       const reader = new FileReader();
       reader.onload = (ev) => {
-        newFiles.push({
+        results[slot] = {
           filename: file.name,
-          content: ev.target?.result as string,
-        });
+          content: ev.target?.result as string ?? '',
+        };
         processed++;
-        if (processed === uploadedFiles.length) {
-          onFilesChange([...files, ...newFiles]);
-          if (files.length === 0) onActiveFileChange(0); // switch to first if it was empty
+        if (processed === total) {
+          // Deduplicate: skip any file whose name already exists
+          const incoming = results.filter(
+            r => !files.some(existing => existing.filename === r.filename)
+          );
+          const merged = [...files, ...incoming];
+          onFilesChange(merged);
+          // Switch to the first newly-added file
+          if (incoming.length > 0) {
+            onActiveFileChange(files.length); // index of first new file
+          }
         }
       };
       reader.readAsText(file);
