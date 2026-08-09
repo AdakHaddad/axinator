@@ -1,4 +1,3 @@
-````markdown
 # Verilog AXI Wrapper Generator
 
 > Convert existing Verilog RTL into a Vivado-compatible AXI4-Lite IP wrapper — automatically.
@@ -67,7 +66,7 @@ slv_reg0
 slv_reg1
 slv_reg2
 ...
-````
+```
 
 and then manually connecting:
 
@@ -710,9 +709,15 @@ See [`LICENSE`](LICENSE) for details.
 
 ---
 
-# Star History
+## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=adakhaddad/axinator\&type=Date)](https://www.star-history.com/#adakhaddad/axinator&Date)
+<a href="https://www.star-history.com/?repos=adakhaddad%2Faxinator&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=adakhaddad/axinator&type=date&theme=dark&legend=top-left&sealed_token=Qssmz4UfL-_Z4B-gP4hSI-CjxX3u88wJDBoKZ-8xmyJg7hPXbZPVDNXWXW1o97DPNWx8oVZZxkiYOVQWcC5g7aKaxrU6UplM46Gd4BDGCVKudYgTqAX28JhsHwzim8o4KfE4D1dYjrypJDYbXBUQpfjZufQjJgCfFmhUWqDh2iLZqSx3GQwclEmzVTN2" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=adakhaddad/axinator&type=date&legend=top-left&sealed_token=Qssmz4UfL-_Z4B-gP4hSI-CjxX3u88wJDBoKZ-8xmyJg7hPXbZPVDNXWXW1o97DPNWx8oVZZxkiYOVQWcC5g7aKaxrU6UplM46Gd4BDGCVKudYgTqAX28JhsHwzim8o4KfE4D1dYjrypJDYbXBUQpfjZufQjJgCfFmhUWqDh2iLZqSx3GQwclEmzVTN2" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=adakhaddad/axinator&type=date&legend=top-left&sealed_token=Qssmz4UfL-_Z4B-gP4hSI-CjxX3u88wJDBoKZ-8xmyJg7hPXbZPVDNXWXW1o97DPNWx8oVZZxkiYOVQWcC5g7aKaxrU6UplM46Gd4BDGCVKudYgTqAX28JhsHwzim8o4KfE4D1dYjrypJDYbXBUQpfjZufQjJgCfFmhUWqDh2iLZqSx3GQwclEmzVTN2" />
+ </picture>
+</a>
 
 ---
 
