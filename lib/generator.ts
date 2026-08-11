@@ -7,7 +7,7 @@ import type {
   ResetConfig,
 } from './types';
 import { PortType } from './types';
-import { calcAddrWidth, formatAddress } from './registerMap';
+import { calcAddrWidth, countPhysicalRegs, formatAddress } from './registerMap';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Port rendering helpers
@@ -41,12 +41,11 @@ function externalPorts(portConfigs: PortConfig[], clock: ClockConfig | null, res
 
 function moduleInstantiation(cfg: IPConfig): string {
   const { portConfigs, registers, clock, reset } = cfg;
-  // Derive the actual top module name from ipName (strip _axi suffix)
   const topModName = cfg.ipName.replace(/_axi$/i, '');
   const lines: string[] = [];
   lines.push(`    ${topModName} u_${topModName} (`);
-
   const mappings: string[] = [];
+
   for (const pc of portConfigs) {
     const p = pc.port;
     switch (pc.portType) {
@@ -61,9 +60,12 @@ function moduleInstantiation(cfg: IPConfig): string {
         break;
       }
       case PortType.AXI_REGISTER: {
+        // Find all register entries for this port (could be packed)
         const reg = registers.find(r => r.mappedPort === p.name);
         if (reg) {
-          const slice = p.width < 32 ? `[${reg.msb}:${reg.lsb}]` : '';
+          // Drive port from the correct slice of the 32-bit register word
+          const needsSlice = p.width < 32;
+          const slice = needsSlice ? `[${reg.msb}:${reg.lsb}]` : '';
           mappings.push(`        .${p.name}(${reg.regName}${slice})`);
         } else {
           mappings.push(`        .${p.name}(/* unassigned */)`);
@@ -89,9 +91,10 @@ function moduleInstantiation(cfg: IPConfig): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateTopWrapper(cfg: IPConfig): string {
-  const addrWidth = calcAddrWidth(cfg.registers.length);
+  const physRegs = countPhysicalRegs(cfg.registers);
+  const addrWidth = calcAddrWidth(physRegs);
   const userPorts = externalPorts(cfg.portConfigs, cfg.clock, cfg.reset);
-  const slaveInst = generateSlaveInstantiation(cfg, addrWidth);
+  const slaveInst = generateSlaveInstantiation(cfg);
 
   return `\`timescale 1 ns / 1 ps
 // =============================================================================
@@ -137,7 +140,7 @@ endmodule
 `;
 }
 
-function generateSlaveInstantiation(cfg: IPConfig, addrWidth: number): string {
+function generateSlaveInstantiation(cfg: IPConfig): string {
   const slaveName = `${cfg.ipName}_S00_AXI`;
   const externalPortMappings = cfg.portConfigs.filter(pc =>
     pc.portType === PortType.EXTERNAL_INPUT ||
@@ -176,35 +179,80 @@ ${externalPortMappings ? externalPortMappings + ',\n' : ''}        .S_AXI_ACLK(s
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AXI Slave generator
+// AXI Slave generator helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateRegisterDeclarations(registers: RegisterEntry[]): string {
   if (registers.length === 0) return '    // No AXI registers configured';
-  return registers.map(r => `    reg [C_S_AXI_DATA_WIDTH-1:0] ${r.regName};`).join('\n');
+  // Emit one declaration per unique register name (packed pairs share a reg)
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const r of registers) {
+    if (!seen.has(r.regName)) {
+      seen.add(r.regName);
+      lines.push(`    reg [C_S_AXI_DATA_WIDTH-1:0] ${r.regName};`);
+    }
+  }
+  return lines.join('\n');
 }
 
+/**
+ * Build write logic that is correct for sub-32-bit ports.
+ *
+ * Key fix: byte-enable guards now use proper constant expressions.
+ * The byte-enable loop only touches bytes that actually overlap with the
+ * port's slice. For a [15:0] port that lives in bits [15:0] of the register,
+ * only byte lanes 0 (bits 7:0) and 1 (bits 15:8) are relevant.
+ */
 function generateWriteLogic(registers: RegisterEntry[]): string {
-  if (registers.length === 0) return '            // No writable registers';
-  const cases = registers
-    .filter(r => r.mode !== 'RO')
-    .map(r => {
-      const addrIdx = r.address / 4;
-      const byteEnLines = [0, 1, 2, 3].map(byte => {
-        const bitH = byte * 8 + 7;
-        const bitL = byte * 8;
-        return `                        if ( S_AXI_WSTRB[${byte}] == 1 ) begin
-                            ${r.regName}[(${bitH} <= C_S_AXI_DATA_WIDTH-1 ? ${bitH} : C_S_AXI_DATA_WIDTH-1) : ${bitL}] <= S_AXI_WDATA[(${bitH} <= C_S_AXI_DATA_WIDTH-1 ? ${bitH} : C_S_AXI_DATA_WIDTH-1) : ${bitL}];
-                        end`;
-      }).join('\n');
-      return `                    ${addrIdx}: begin\n${byteEnLines}\n                    end`;
-    })
-    .join('\n');
+  // Collect unique physical registers (by address) for the case statement
+  const physMap = new Map<number, RegisterEntry[]>();
+  for (const r of registers) {
+    if (r.mode === 'RO') continue;
+    if (!physMap.has(r.address)) physMap.set(r.address, []);
+    physMap.get(r.address)!.push(r);
+  }
+
+  if (physMap.size === 0) return '            // No writable registers';
+
+  const physAddrs = Array.from(physMap.keys()).sort((a, b) => a - b);
+
+  const cases = physAddrs.map(addr => {
+    const addrIdx = addr / 4;
+    const entries = physMap.get(addr)!;
+    // For each entry in this physical register, generate byte-enable writes
+    // that only touch bytes within [msb:lsb]
+    const byteLines: string[] = [];
+    for (let byte = 0; byte < 4; byte++) {
+      const bitH = byte * 8 + 7;
+      const bitL = byte * 8;
+      // Check if this byte overlaps with any entry's slice
+      const overlapping = entries.filter(e => e.lsb <= bitH && e.msb >= bitL);
+      if (overlapping.length === 0) continue;
+      // Clamp the bit range to actual slice boundaries
+      for (const e of overlapping) {
+        const hi = Math.min(bitH, e.msb);
+        const lo = Math.max(bitL, e.lsb);
+        byteLines.push(
+          `                        if (S_AXI_WSTRB[${byte}] == 1) begin\n` +
+          `                            ${e.regName}[${hi}:${lo}] <= S_AXI_WDATA[${hi}:${lo}];\n` +
+          `                        end`
+        );
+      }
+    }
+    return `                    ${addrIdx}: begin\n${byteLines.join('\n')}\n                    end`;
+  }).join('\n');
+
+  // Default: hold all writable registers
+  const uniqueRegs = [...new Set(
+    Array.from(physMap.values()).flat().map(r => r.regName)
+  )];
+  const holdLines = uniqueRegs.map(n => `                        ${n} <= ${n};`).join('\n');
 
   return `                    case ( axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
 ${cases}
                     default : begin
-${registers.filter(r => r.mode !== 'RO').map(r => `                        ${r.regName} <= ${r.regName};`).join('\n')}
+${holdLines}
                     end
                     endcase`;
 }
@@ -214,9 +262,23 @@ function generateReadLogic(registers: RegisterEntry[]): string {
     return `                    // No registers to read
                     reg_data_out <= 0;`;
   }
-  const cases = registers.map(r => {
-    const addrIdx = r.address / 4;
-    return `                    ${addrIdx}: reg_data_out <= ${r.mode === 'WO' ? `{C_S_AXI_DATA_WIDTH{1'b0}}` : r.regName};`;
+
+  // Build one case entry per physical address
+  const physMap = new Map<number, RegisterEntry[]>();
+  for (const r of registers) {
+    if (!physMap.has(r.address)) physMap.set(r.address, []);
+    physMap.get(r.address)!.push(r);
+  }
+
+  const physAddrs = Array.from(physMap.keys()).sort((a, b) => a - b);
+  const cases = physAddrs.map(addr => {
+    const addrIdx = addr / 4;
+    const entries = physMap.get(addr)!;
+    // The register word is the same for all entries at this address
+    const regName = entries[0].regName;
+    const isWO = entries.every(e => e.mode === 'WO');
+    const rval = isWO ? `{C_S_AXI_DATA_WIDTH{1'b0}}` : regName;
+    return `                    ${addrIdx}: reg_data_out <= ${rval};`;
   }).join('\n');
 
   return `                    case ( axi_araddr[ADDR_LSB+OPT_MEM_ADDR_BITS:ADDR_LSB] )
@@ -242,17 +304,35 @@ function generateSlaveExternalPorts(cfg: IPConfig): string {
   return lines.join('\n');
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AXI Slave top-level generator
+// ─────────────────────────────────────────────────────────────────────────────
+
 function generateAxiSlave(cfg: IPConfig): string {
   const { registers } = cfg;
-  const addrWidth = calcAddrWidth(registers.length);
-  const numRegs = Math.max(registers.length, 1);
-  const optMemAddrBits = Math.max(Math.ceil(Math.log2(numRegs)) - 1, 0);
+
+  // OPT_MEM_ADDR_BITS must cover the index range [0 .. numPhysRegs-1].
+  // The case statement uses axi_awaddr[ADDR_LSB+OPT_MEM_ADDR_BITS : ADDR_LSB]
+  // which is (OPT_MEM_ADDR_BITS+1) bits wide.
+  // We need (OPT_MEM_ADDR_BITS+1) >= ceil(log2(numPhysRegs)), so:
+  //   OPT_MEM_ADDR_BITS = max(ceil(log2(numPhysRegs)) - 1, 0)
+  // Special case: 0 or 1 physical registers → 0 (1-bit selector, value 0).
+  const physRegs = countPhysicalRegs(registers);
+  const addrWidth = calcAddrWidth(physRegs);
+  const optMemAddrBits = physRegs <= 1 ? 0 : Math.ceil(Math.log2(physRegs)) - 1;
+
   const slaveName = `${cfg.ipName}_S00_AXI`;
   const slaveExternalPorts = generateSlaveExternalPorts(cfg);
   const regDecls = generateRegisterDeclarations(registers);
   const writeLogic = generateWriteLogic(registers);
   const readLogic = generateReadLogic(registers);
   const modInst = moduleInstantiation(cfg);
+
+  // Reset lines — one per unique register
+  const uniqueRegs = [...new Set(registers.map(r => r.regName))];
+  const resetLines = uniqueRegs.length > 0
+    ? uniqueRegs.map(n => `        ${n} <= 0;`).join('\n')
+    : '        // No registers to reset';
 
   return `\`timescale 1 ns / 1 ps
 // =============================================================================
@@ -303,7 +383,10 @@ reg [C_S_AXI_DATA_WIDTH-1 : 0]  axi_rdata;
 reg [1 : 0]  axi_rresp;
 reg   axi_rvalid;
 
+// ADDR_LSB = 2 for 32-bit data bus (word-aligned addressing)
 localparam integer ADDR_LSB = (C_S_AXI_DATA_WIDTH/32) + 1;
+// OPT_MEM_ADDR_BITS: number of additional address bits above ADDR_LSB
+// needed to index all registers. Selector width = OPT_MEM_ADDR_BITS+1 bits.
 localparam integer OPT_MEM_ADDR_BITS = ${optMemAddrBits};
 
 ${regDecls}
@@ -320,6 +403,7 @@ assign S_AXI_RDATA   = axi_rdata;
 assign S_AXI_RRESP   = axi_rresp;
 assign S_AXI_RVALID  = axi_rvalid;
 
+// Write address handshake
 always @( posedge S_AXI_ACLK )
 begin
     if ( S_AXI_ARESETN == 1'b0 ) begin axi_awready <= 1'b0; aw_en <= 1'b1; end
@@ -338,6 +422,7 @@ begin
     else if (~axi_awready && S_AXI_AWVALID && S_AXI_WVALID && aw_en) axi_awaddr <= S_AXI_AWADDR;
 end
 
+// Write data handshake
 always @( posedge S_AXI_ACLK )
 begin
     if ( S_AXI_ARESETN == 1'b0 ) axi_wready <= 1'b0;
@@ -350,10 +435,11 @@ end
 wire slv_reg_wren;
 assign slv_reg_wren = axi_wready && S_AXI_WVALID && axi_awready && S_AXI_AWVALID;
 
+// Register write logic
 always @( posedge S_AXI_ACLK )
 begin
     if ( S_AXI_ARESETN == 1'b0 ) begin
-${registers.map(r => `        ${r.regName} <= 0;`).join('\n') || '        // No registers to reset'}
+${resetLines}
     end else begin
         if (slv_reg_wren) begin
 ${writeLogic}
@@ -361,6 +447,7 @@ ${writeLogic}
     end
 end
 
+// Write response
 always @( posedge S_AXI_ACLK )
 begin
     if ( S_AXI_ARESETN == 1'b0 ) begin axi_bvalid <= 0; axi_bresp <= 2'b0; end
@@ -371,6 +458,7 @@ begin
     end
 end
 
+// Read address handshake
 always @( posedge S_AXI_ACLK )
 begin
     if ( S_AXI_ARESETN == 1'b0 ) begin axi_arready <= 1'b0; axi_araddr <= 32'b0; end
@@ -380,6 +468,7 @@ begin
     end
 end
 
+// Read data handshake
 always @( posedge S_AXI_ACLK )
 begin
     if ( S_AXI_ARESETN == 1'b0 ) begin axi_rvalid <= 0; axi_rresp <= 0; end
@@ -392,6 +481,7 @@ end
 wire slv_reg_rden;
 assign slv_reg_rden = axi_arready & S_AXI_ARVALID & ~axi_rvalid;
 
+// Register read mux
 always @(*)
 begin
 ${readLogic}
@@ -417,36 +507,45 @@ endmodule
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateRegMapMd(cfg: IPConfig): string {
+  const physRegs = countPhysicalRegs(cfg.registers);
+  const addrWidth = calcAddrWidth(physRegs);
+
+  // De-duplicate rows by address for the table header, show all entries (packed ports each get a row)
   const rows = cfg.registers.map(r =>
-    `| ${formatAddress(r.address)} | ${r.regName} | ${r.mappedPort} | [${r.msb}:${r.lsb}] | ${r.width} | ${r.mode} |`
+    `| ${formatAddress(r.address)} | ${r.regName}[${r.msb}:${r.lsb}] | ${r.mappedPort} | ${r.width} | ${r.mode} |`
   ).join('\n');
 
   return `# Register Map: ${cfg.ipName}
 
-| Address | Register | Mapped Port | Slice | Width | Mode |
-|---------|----------|-------------|-------|-------|------|
-${rows || '| — | — | No AXI registers configured | — | — | — |'}
+| Address | Register Slice | Mapped Port | Width | Mode |
+|---------|---------------|-------------|-------|------|
+${rows || '| — | — | No AXI registers configured | — | — |'}
+
+## Notes
+- Packed pairs: two ports with width ≤ 16 share one 32-bit register word.
+  Low half [15:0] = first port, high half [31:16] = second port.
 
 ## Address Width
-\`C_S_AXI_ADDR_WIDTH = ${calcAddrWidth(cfg.registers.length)}\`
+\`C_S_AXI_ADDR_WIDTH = ${addrWidth}\`
 
 ## AXI Access Example (C pseudocode)
 \`\`\`c
 #define BASE_ADDR  0x43C00000  // example Zynq AXI GP base
 
 ${cfg.registers.map(r =>
-  `// ${r.mappedPort} → ${r.regName}\n*(volatile uint32_t*)(BASE_ADDR + ${formatAddress(r.address)}) = value;`
+  `// ${r.mappedPort} → ${r.regName}[${r.msb}:${r.lsb}]\n*(volatile uint32_t*)(BASE_ADDR + ${formatAddress(r.address)}) = value;`
 ).join('\n') || '// No registers configured'}
 \`\`\`
 `;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// component.xml — lists all source HDL files
+// component.xml
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateComponentXml(cfg: IPConfig): string {
-  const addrWidth = calcAddrWidth(cfg.registers.length);
+  const physRegs = countPhysicalRegs(cfg.registers);
+  const addrWidth = calcAddrWidth(physRegs);
   const sourceFileEntries = cfg.sourceFiles.map(f =>
     `      <spirit:file>\n        <spirit:name>hdl/${f.filename}</spirit:name>\n        <spirit:fileType>verilogSource</spirit:fileType>\n      </spirit:file>`
   ).join('\n');
@@ -513,18 +612,18 @@ ${sourceFileEntries}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// README — multi-file aware
+// README
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateReadme(cfg: IPConfig): string {
-  const addrWidth = calcAddrWidth(cfg.registers.length);
+  const physRegs = countPhysicalRegs(cfg.registers);
+  const addrWidth = calcAddrWidth(physRegs);
   const topModName = cfg.ipName.replace(/_axi$/i, '');
   const extPorts = cfg.portConfigs.filter(pc =>
     pc.portType === PortType.EXTERNAL_INPUT ||
     pc.portType === PortType.EXTERNAL_OUTPUT ||
     pc.portType === PortType.EXTERNAL_INOUT
   );
-
   const sourceFileRows = cfg.sourceFiles.map(f =>
     `| \`hdl/${f.filename}\` | Original RTL source |`
   ).join('\n');
@@ -568,9 +667,9 @@ ${sourceFileRows}
 
 ## Register Map
 
-| Address | Register | Port | Slice | Mode |
-|---------|----------|------|-------|------|
-${cfg.registers.map(r => `| ${formatAddress(r.address)} | \`${r.regName}\` | \`${r.mappedPort}\` | [${r.msb}:${r.lsb}] | ${r.mode} |`).join('\n') || '| — | — | No AXI registers | — | — |'}
+| Address | Register Slice | Port | Mode |
+|---------|---------------|------|------|
+${cfg.registers.map(r => `| ${formatAddress(r.address)} | \`${r.regName}[${r.msb}:${r.lsb}]\` | \`${r.mappedPort}\` | ${r.mode} |`).join('\n') || '| — | — | No AXI registers | — |'}
 
 ---
 
@@ -597,7 +696,7 @@ ${cfg.reset ? `- **Reset**: \`${cfg.reset.portName}\`, ${cfg.reset.polarity}${cf
 #define ${cfg.ipName.toUpperCase()}_BASE  0x43C00000
 
 ${cfg.registers.map(r =>
-  `#define ${r.regName.toUpperCase()}_OFFSET  ${formatAddress(r.address)}  // ${r.mappedPort}`
+  `#define ${r.mappedPort.toUpperCase()}_OFFSET  ${formatAddress(r.address)}  // ${r.regName}[${r.msb}:${r.lsb}]`
 ).join('\n') || '// No registers configured'}
 
 static inline void ${cfg.ipName}_write(uint32_t offset, uint32_t val) {

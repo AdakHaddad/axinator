@@ -1,7 +1,7 @@
 'use client';
 
 import type { RegisterEntry, RegisterMode } from '../lib/types';
-import { formatAddress, calcAddrWidth } from '../lib/registerMap';
+import { formatAddress, calcAddrWidth, countPhysicalRegs } from '../lib/registerMap';
 
 interface RegisterPanelProps {
   registers: RegisterEntry[];
@@ -9,7 +9,7 @@ interface RegisterPanelProps {
 }
 
 export default function RegisterPanel({ registers, onUpdate }: RegisterPanelProps) {
-  const addrWidth = calcAddrWidth(registers.length);
+  const addrWidth = calcAddrWidth(countPhysicalRegs(registers));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -82,6 +82,12 @@ export default function RegisterPanel({ registers, onUpdate }: RegisterPanelProp
                   <td>
                     <span style={{ fontFamily: 'var(--font-code)', color: 'var(--text-secondary)', fontSize: '11px' }}>
                       {reg.width < 32 ? `[${reg.msb}:${reg.lsb}]` : '32-bit'}
+                      {reg.packed && (
+                        <span
+                          title="Packed: shares a 32-bit register word with the port below"
+                          style={{ marginLeft: '4px', color: 'var(--amber)', fontSize: '9px', fontWeight: 700 }}
+                        >PKD</span>
+                      )}
                     </span>
                   </td>
                   <td>

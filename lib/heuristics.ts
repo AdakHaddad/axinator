@@ -1,25 +1,45 @@
 import { PortType } from './types';
-import type { VerilogPort } from './types';
+import type { VerilogPort, PortConfig, HeuristicConfidence } from './types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Internal result type — confidence travels alongside the suggestion
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Suggestion {
+  portType: PortType;
+  confidence: HeuristicConfidence;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// suggestPortType  (now returns confidence too)
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Suggests a PortType for a given VerilogPort based on common naming conventions.
- * These are SUGGESTIONS ONLY — the user can always override them in the UI.
+ * Suggest a PortType for a VerilogPort based on naming conventions.
+ * Returns both the type and a confidence level so the UI can warn the user
+ * when the classification is uncertain.
+ *
+ * HIGH   = strong, unambiguous naming match
+ * MEDIUM = reasonable guess, most designs would agree
+ * LOW    = fell through to a width-based default — user should double-check
  */
-export function suggestPortType(port: VerilogPort): PortType {
+export function suggestPortConfig(port: VerilogPort): Suggestion {
   const n = port.name.toLowerCase();
 
-  // ── Clock detection ──────────────────────────────────────────────────────
+  // ── Clock — HIGH confidence ──────────────────────────────────────────────
   if (
     port.direction === 'input' &&
     port.width === 1 &&
-    (n === 'clk' || n === 'clock' || n.startsWith('clk_') || n.endsWith('_clk') ||
-     n.startsWith('clock_') || n.endsWith('_clock') || n === 'mclk' || n === 'sclk' ||
-     n === 'aclk' || n === 'pclk' || n === 'hclk' || n === 'fclk')
+    (n === 'clk' || n === 'clock' ||
+     n.startsWith('clk_') || n.endsWith('_clk') ||
+     n.startsWith('clock_') || n.endsWith('_clock') ||
+     n === 'mclk' || n === 'sclk' || n === 'aclk' ||
+     n === 'pclk' || n === 'hclk' || n === 'fclk')
   ) {
-    return PortType.CLOCK;
+    return { portType: PortType.CLOCK, confidence: 'HIGH' };
   }
 
-  // ── Reset detection ──────────────────────────────────────────────────────
+  // ── Reset — HIGH confidence ──────────────────────────────────────────────
   if (
     port.direction === 'input' &&
     port.width === 1 &&
@@ -29,55 +49,96 @@ export function suggestPortType(port: VerilogPort): PortType {
      n.startsWith('reset_') || n.endsWith('_reset') ||
      n.startsWith('arst') || n.endsWith('_rstn'))
   ) {
-    return PortType.RESET;
+    return { portType: PortType.RESET, confidence: 'HIGH' };
   }
 
-  // ── Output ports ─────────────────────────────────────────────────────────
+  // ── Output — HIGH confidence (direction is explicit in RTL) ─────────────
   if (port.direction === 'output') {
-    return PortType.EXTERNAL_OUTPUT;
+    return { portType: PortType.EXTERNAL_OUTPUT, confidence: 'HIGH' };
   }
 
-  // ── Inout ports ──────────────────────────────────────────────────────────
+  // ── Inout — HIGH confidence ──────────────────────────────────────────────
   if (port.direction === 'inout') {
-    return PortType.EXTERNAL_INOUT;
+    return { portType: PortType.EXTERNAL_INOUT, confidence: 'HIGH' };
   }
 
-  // ── Input: heuristic split on width and naming ───────────────────────────
-  // Single-bit inputs with common control signal names → external input
+  // From here all ports are inputs. Confidence depends on naming clarity.
+
+  // ── Well-known control/data input names → EXTERNAL_INPUT, HIGH ──────────
   if (
     port.direction === 'input' &&
-    port.width === 1 &&
-    (n === 'en' || n === 'enable' || n === 'valid' || n === 'start' || n === 'ce' ||
-     n === 'wr' || n === 'rd' || n === 'we' || n === 'oe' || n === 'cs' ||
-     n.startsWith('valid') || n.endsWith('_valid') || n.startsWith('en_') ||
-     n.endsWith('_en') || n.startsWith('sel') || n.endsWith('_sel') ||
-     n === 'load' || n === 'clear' || n === 'sync' || n === 'strobe' ||
-     n.includes('irq') || n.includes('int') || n === 'busy' || n === 'ready')
+    (n === 'valid' || n === 'en' || n === 'enable' || n === 'start' ||
+     n === 'ce' || n === 'wr' || n === 'rd' || n === 'we' || n === 'oe' ||
+     n === 'cs' || n === 'load' || n === 'clear' || n === 'sync' ||
+     n === 'strobe' || n === 'busy' || n === 'ready' ||
+     n.startsWith('valid') || n.endsWith('_valid') ||
+     n.startsWith('en_')   || n.endsWith('_en') ||
+     n.startsWith('sel')   || n.endsWith('_sel') ||
+     n.includes('irq')     || n.includes('int'))
   ) {
-    return PortType.EXTERNAL_INPUT;
+    return { portType: PortType.EXTERNAL_INPUT, confidence: 'HIGH' };
   }
 
-  // Multi-bit inputs with data-like names → external input (streaming/data bus)
+  // ── Data/streaming bus names → EXTERNAL_INPUT, HIGH ─────────────────────
+  if (
+    port.direction === 'input' &&
+    (n === 'x_in' || n === 'din' || n === 'data_in' ||
+     n.includes('data') || n.includes('addr') || n.includes('bus') ||
+     n.startsWith('x_') || n.includes('_in') ||
+     n.includes('tdata') || n.includes('tvalid') || n.includes('tlast') ||
+     n.includes('gpio') || n.includes('io'))
+  ) {
+    return { portType: PortType.EXTERNAL_INPUT, confidence: 'HIGH' };
+  }
+
+  // ── Switch / selector inputs (common in DSP) → EXTERNAL_INPUT, MEDIUM ───
+  if (
+    port.direction === 'input' &&
+    (n === 'sw' || n.startsWith('sw_') || n.endsWith('_sw') ||
+     n === 'sel' || n.startsWith('sel_') || n.endsWith('_sel') ||
+     n === 'mode' || n === 'ctrl')
+  ) {
+    return { portType: PortType.EXTERNAL_INPUT, confidence: 'MEDIUM' };
+  }
+
+  // ── Multi-bit inputs — ambiguous; could be coefficient/config or data ────
+  // Lean toward AXI_REGISTER for coefficient-like names (b, a + number suffix)
   if (
     port.direction === 'input' &&
     port.width > 1 &&
-    (n.includes('data') || n.includes('addr') || n.includes('bus') ||
-     n.startsWith('x_') || n === 'x_in' || n === 'din' || n === 'data_in' ||
-     n.includes('_in') || n.includes('tdata') || n.includes('tvalid') ||
-     n.includes('tlast') || n.includes('gpio') || n.includes('io') ||
-     n.startsWith('sw') || n === 'sw')
+    /^[ab]\d/.test(n)   // matches b0, a1, b0_1_in, a2_2, etc.
   ) {
-    return PortType.EXTERNAL_INPUT;
+    return { portType: PortType.AXI_REGISTER, confidence: 'MEDIUM' };
   }
 
-  // Default for multi-bit inputs: AXI register (coefficients, configuration)
+  // ── Multi-bit input with no recognisable name → AXI_REGISTER, LOW ───────
   if (port.direction === 'input' && port.width > 1) {
-    return PortType.AXI_REGISTER;
+    return { portType: PortType.AXI_REGISTER, confidence: 'LOW' };
   }
 
-  // Default for single-bit inputs: external
-  return PortType.EXTERNAL_INPUT;
+  // ── Single-bit input, name unrecognised → EXTERNAL_INPUT, LOW ────────────
+  return { portType: PortType.EXTERNAL_INPUT, confidence: 'LOW' };
 }
+
+/**
+ * Build a PortConfig with heuristic suggestion and confidence attached.
+ * Use this instead of calling suggestPortType directly.
+ */
+export function buildPortConfig(port: VerilogPort): PortConfig {
+  const { portType, confidence } = suggestPortConfig(port);
+  return { port, portType, confidence };
+}
+
+/**
+ * Legacy shim — returns only the PortType for callers that don't need confidence.
+ */
+export function suggestPortType(port: VerilogPort): PortType {
+  return suggestPortConfig(port).portType;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Label / colour helpers (unchanged API)
+// ─────────────────────────────────────────────────────────────────────────────
 
 /** Returns human-readable label for a PortType */
 export function portTypeLabel(pt: PortType): string {
@@ -92,7 +153,7 @@ export function portTypeLabel(pt: PortType): string {
   }
 }
 
-/** Badge color class for each port type */
+/** Badge colour class for each PortType */
 export function portTypeColor(pt: PortType): string {
   switch (pt) {
     case PortType.CLOCK:           return 'badge-clock';
@@ -102,5 +163,14 @@ export function portTypeColor(pt: PortType): string {
     case PortType.EXTERNAL_OUTPUT: return 'badge-ext-out';
     case PortType.EXTERNAL_INOUT:  return 'badge-ext-inout';
     case PortType.IGNORE:          return 'badge-ignore';
+  }
+}
+
+/** Tooltip text explaining why a confidence level was assigned */
+export function confidenceTooltip(confidence: HeuristicConfidence): string {
+  switch (confidence) {
+    case 'HIGH':   return 'Strong naming-convention match — classification is reliable.';
+    case 'MEDIUM': return 'Reasonable guess — verify this is correct for your design.';
+    case 'LOW':    return 'No naming convention matched — defaulted by width/direction. Please review.';
   }
 }

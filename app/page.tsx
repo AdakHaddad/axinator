@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import Header from '../components/Header';
 import VerilogEditor from '../components/VerilogEditor';
 import PortTable from '../components/PortTable';
@@ -10,7 +10,7 @@ import StatusBar from '../components/StatusBar';
 import DependencyTree from '../components/DependencyTree';
 
 import { parseVerilogFile } from '../lib/parser';
-import { suggestPortType } from '../lib/heuristics';
+import { buildPortConfig } from '../lib/heuristics';
 import { buildRegisterMap, mergeRegisters } from '../lib/registerMap';
 import { generateAll } from '../lib/generator';
 import { downloadZip } from '../lib/zipper';
@@ -83,14 +83,14 @@ function useDraggableSplit(
 
 export default function AppShell() {
   // ── Theme ────────────────────────────────────────────────────────────────
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-
-  useEffect(() => {
-    // Respect OS preference on first load
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // Lazy initializer so we never set state inside an effect; guard window so
+  // SSR produces the same initial markup as the first client render.
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
     const saved = localStorage.getItem('axinator-theme') as 'dark' | 'light' | null;
-    setTheme(saved ?? (prefersDark ? 'dark' : 'light'));
-  }, []);
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return saved ?? (prefersDark ? 'dark' : 'light');
+  });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -118,7 +118,6 @@ export default function AppShell() {
 
   const [parsedModules, setParsedModules]   = useState<ParsedModule[]>([]);
   const [depGraph, setDepGraph]             = useState<DependencyGraph | null>(null);
-  const [depTree, setDepTree]               = useState<DependencyNode | null>(null);
   const [topModuleName, setTopModuleName]   = useState<string>('');
 
   const [portConfigs, setPortConfigs]       = useState<PortConfig[]>([]);
@@ -141,16 +140,20 @@ export default function AppShell() {
     [parsedModules, topModuleName],
   );
 
-  useEffect(() => {
-    if (depGraph && topModuleName) setDepTree(buildDependencyTree(topModuleName, depGraph));
-    else setDepTree(null);
-  }, [depGraph, topModuleName]);
+  // Dependency tree is pure derived state — compute it directly.
+  const depTree: DependencyNode | null = useMemo(
+    () => (depGraph && topModuleName ? buildDependencyTree(topModuleName, depGraph) : null),
+    [depGraph, topModuleName],
+  );
 
-  useEffect(() => {
+  // Port/register config is derived from the top module, but it's also
+  // user-editable — so instead of an effect, use the "adjust state during
+  // render" pattern to rebuild it exactly when the top module changes.
+  const [configSource, setConfigSource] = useState<ParsedModule | null | undefined>(null);
+  if (topModule !== configSource) {
+    setConfigSource(topModule);
     if (topModule) {
-      const configs = topModule.ports.map(p => ({
-        port: p, portType: suggestPortType(p),
-      }));
+      const configs = topModule.ports.map(p => buildPortConfig(p));
       setPortConfigs(configs);
       setRegisters(buildRegisterMap(configs));
       setGenerated(null);
@@ -160,7 +163,7 @@ export default function AppShell() {
       setRegisters([]);
       setGenerated(null);
     }
-  }, [topModule]);
+  }
 
   const allParseErrors = useMemo(
     () => parsedModules.reduce((s, m) => s + m.errors.length, 0),
@@ -210,7 +213,7 @@ export default function AppShell() {
 
   const handleGenerate = useCallback(() => {
     if (!topModule || !depGraph) return;
-    const validation = validateSetup(topModuleName, depGraph, files, includeAllSources);
+    const validation = validateSetup(topModuleName, depGraph, includeAllSources);
     setValidationMessages(validation.messages);
     if (!validation.valid) {
       const n = validation.messages.filter(m => m.severity === 'error').length;

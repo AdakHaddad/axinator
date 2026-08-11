@@ -87,12 +87,22 @@ export enum PortType {
   IGNORE           = 'IGNORE',
 }
 
+/**
+ * Confidence level for an auto-classified port type.
+ * HIGH   = strong naming convention match (clk, rst_n, y_out etc.)
+ * MEDIUM = reasonable guess based on direction + width
+ * LOW    = fell through to a default rule — user should verify
+ */
+export type HeuristicConfidence = 'HIGH' | 'MEDIUM' | 'LOW';
+
 export type ResetPolarity = 'active_low' | 'active_high';
 export type RegisterMode  = 'RW' | 'RO' | 'WO';
 
 export interface PortConfig {
   port: VerilogPort;
   portType: PortType;
+  /** Confidence of the auto-classification. undefined = user-overridden. */
+  confidence?: HeuristicConfidence;
   // filled when portType === AXI_REGISTER
   registerIndex?: number;
 }
@@ -103,10 +113,16 @@ export interface RegisterEntry {
   regName: string;        // e.g. slv_reg0
   address: number;        // byte address, e.g. 0x00
   width: number;          // bits used, e.g. 16
-  msb: number;            // slice MSB, e.g. 15
-  lsb: number;            // slice LSB, e.g. 0
+  msb: number;            // slice MSB within the 32-bit register word, e.g. 15
+  lsb: number;            // slice LSB within the 32-bit register word, e.g. 0
   mode: RegisterMode;     // RW / RO / WO
   mappedPort: string;     // port name this register drives
+  /**
+   * When two narrow ports are packed into the same 32-bit register word,
+   * both entries share the same regName and address but differ in msb/lsb.
+   * packed = true marks the second (high-half) port in such a pair.
+   */
+  packed?: boolean;
 }
 
 // ── IP configuration ─────────────────────────────────────────────────────────

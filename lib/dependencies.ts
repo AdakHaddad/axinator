@@ -4,7 +4,6 @@ import type {
   DependencyNode,
   ValidationResult,
   ValidationMessage,
-  UploadedFile,
 } from './types';
 
 // ── Build dependency graph ────────────────────────────────────────────────────
@@ -187,7 +186,6 @@ export function getUnreachableModules(
 export function validateSetup(
   topModuleName: string,
   graph: DependencyGraph,
-  allUploadedFiles: UploadedFile[],
   includeAllSources: boolean
 ): ValidationResult {
   const messages: ValidationMessage[] = [];
@@ -208,19 +206,8 @@ export function validateSetup(
   }
 
   // Duplicate module definitions
-  const seenModules = new Map<string, string[]>(); // moduleName → filenames
-  for (const mod of graph.modules.values()) {
-    if (!seenModules.has(mod.moduleName)) seenModules.set(mod.moduleName, []);
-    seenModules.get(mod.moduleName)!.push(mod.filename);
-  }
-  // Note: current parser keeps the last definition; flag as warning if count > 1 is tracked upstream.
-  // The Map already deduplicates, so we check against the uploaded file list instead.
-  const allParsedModuleNames = new Map<string, string[]>();
-  for (const uf of allUploadedFiles) {
-    // We can't re-parse here, so we rely on the graph data already being correct.
-    // Duplicate detection is best-effort via filename tracking.
-    void uf;
-  }
+  // Note: current parser keeps the last definition; the graph already dedupes,
+  // so duplicate detection across files is not possible from graph data alone.
 
   // Missing dependencies reachable from top module
   const reachable = collectReachable(topModuleName, graph);
