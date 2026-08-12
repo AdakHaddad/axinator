@@ -164,6 +164,7 @@ export function portTypeLabel(pt: PortType): string {
     case PortType.EXTERNAL_OUTPUT: return 'EXTERNAL OUTPUT';
     case PortType.EXTERNAL_INOUT:  return 'EXTERNAL INOUT';
     case PortType.IGNORE:          return 'IGNORE';
+    default: return 'UNKNOWN';
   }
 }
 
@@ -177,6 +178,7 @@ export function portTypeColor(pt: PortType): string {
     case PortType.EXTERNAL_OUTPUT: return 'badge-ext-out';
     case PortType.EXTERNAL_INOUT:  return 'badge-ext-inout';
     case PortType.IGNORE:          return 'badge-ignore';
+    default: return 'badge-ignore';
   }
 }
 
