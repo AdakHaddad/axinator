@@ -79,14 +79,28 @@ export function suggestPortConfig(port: VerilogPort): Suggestion {
     return { portType: PortType.EXTERNAL_INPUT, confidence: 'HIGH' };
   }
 
+  // ── Coefficient/config inputs (b0_1, a2_2, ..._in DSP coeffs) → AXI_REGISTER ─
+  // MUST run before the generic "_in" data-bus rule so filter-style coefficient
+  // ports (b0_1_in, b1_2_in, a2_2_in, ...) become AXI registers instead of
+  // external pins. Without this, a filter's coefficients get no register map.
+  if (
+    port.direction === 'input' &&
+    port.width > 1 &&
+    /^[ab](\d|_)/.test(n)   // b0_1_in, a1_2_in, b_coeff, a2, b3, ...
+  ) {
+    return { portType: PortType.AXI_REGISTER, confidence: 'MEDIUM' };
+  }
+
   // ── Data/streaming bus names → EXTERNAL_INPUT, HIGH ─────────────────────
   if (
     port.direction === 'input' &&
     (n === 'x_in' || n === 'din' || n === 'data_in' ||
+     n === 'sample' || n === 'sample_in' || n === 'audio_in' ||
      n.includes('data') || n.includes('addr') || n.includes('bus') ||
-     n.startsWith('x_') || n.includes('_in') ||
+     n.startsWith('x_') ||
      n.includes('tdata') || n.includes('tvalid') || n.includes('tlast') ||
-     n.includes('gpio') || n.includes('io'))
+     n.includes('gpio') || n.includes('io') ||
+     (n.includes('_in') && n.endsWith('_in')))
   ) {
     return { portType: PortType.EXTERNAL_INPUT, confidence: 'HIGH' };
   }

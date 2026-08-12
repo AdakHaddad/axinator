@@ -81,6 +81,8 @@ export enum PortType {
   CLOCK            = 'CLOCK',
   RESET            = 'RESET',
   AXI_REGISTER     = 'AXI_REGISTER',
+  /** Output sampled into a read-only (RO) AXI register so firmware can read it */
+  AXI_READ         = 'AXI_READ',
   EXTERNAL_INPUT   = 'EXTERNAL_INPUT',
   EXTERNAL_OUTPUT  = 'EXTERNAL_OUTPUT',
   EXTERNAL_INOUT   = 'EXTERNAL_INOUT',
@@ -159,4 +161,7 @@ export interface GeneratedFiles {
   registerMapMd: string;
   componentXml: string;
   readme: string;
+  /** C driver that lets firmware (MicroBlaze/Zynq/RISC-V) poke the registers */
+  driverHeader: string;
+  driverSource: string;
 }

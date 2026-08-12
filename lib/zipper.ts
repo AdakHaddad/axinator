@@ -23,6 +23,11 @@ export async function downloadZip(
     hdl.file(filename, content);
   }
 
+  // driver/ — C driver
+  const drv = root.folder('driver')!;
+  drv.file(`${ipName}_driver.h`, files.driverHeader);
+  drv.file(`${ipName}_driver.c`, files.driverSource);
+
   // xgui/ placeholder
   const xgui = root.folder('xgui')!;
   xgui.file(

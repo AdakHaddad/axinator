@@ -8,7 +8,7 @@ interface OutputTabsProps {
   files: GeneratedFiles | null;
 }
 
-type BuiltinTabId = 'top' | 'slave' | 'regmap' | 'xml' | 'readme';
+type BuiltinTabId = 'top' | 'slave' | 'regmap' | 'driverh' | 'driverc' | 'xml' | 'readme';
 type TabId = BuiltinTabId | string; // string = source filename
 
 export default function OutputTabs({ files }: OutputTabsProps) {
@@ -23,7 +23,7 @@ export default function OutputTabs({ files }: OutputTabsProps) {
   // Reset to 'top' if current tab is a source file that no longer exists
   const safeActiveTab: TabId = useMemo(() => {
     if (!files) return 'top';
-    if (['top', 'slave', 'regmap', 'xml', 'readme'].includes(activeTab as string)) return activeTab;
+    if (['top', 'slave', 'regmap', 'driverh', 'driverc', 'xml', 'readme'].includes(activeTab as string)) return activeTab;
     if (files.sourceMap.has(activeTab as string)) return activeTab;
     return 'top';
   }, [activeTab, files]);
@@ -32,18 +32,22 @@ export default function OutputTabs({ files }: OutputTabsProps) {
     { id: 'top',    label: 'Top Wrapper',   icon: 'v'   },
     { id: 'slave',  label: 'AXI Slave',     icon: 'v'   },
     { id: 'regmap', label: 'Register Map',  icon: 'md'  },
+    { id: 'driverh',label: 'Driver .h',     icon: 'c'   },
+    { id: 'driverc',label: 'Driver .c',     icon: 'c'   },
     { id: 'xml',    label: 'component.xml', icon: 'xml' },
     { id: 'readme', label: 'README',        icon: 'md'  },
   ];
 
   let currentContent = '';
-  let currentLang: 'verilog' | 'markdown' | 'xml' = 'verilog';
+  let currentLang: 'verilog' | 'markdown' | 'xml' | 'c' = 'verilog';
 
   if (files) {
     switch (safeActiveTab) {
       case 'top':    currentContent = files.topWrapper;    currentLang = 'verilog';  break;
       case 'slave':  currentContent = files.axiSlave;      currentLang = 'verilog';  break;
       case 'regmap': currentContent = files.registerMapMd; currentLang = 'markdown'; break;
+      case 'driverh':currentContent = files.driverHeader;  currentLang = 'c';        break;
+      case 'driverc':currentContent = files.driverSource;  currentLang = 'c';        break;
       case 'xml':    currentContent = files.componentXml;  currentLang = 'xml';      break;
       case 'readme': currentContent = files.readme;        currentLang = 'markdown'; break;
       default:
